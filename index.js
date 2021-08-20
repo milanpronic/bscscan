@@ -4,7 +4,8 @@ const cheerio = require('cheerio');
 const graphqlClient = require('graphql-request');
 const cliProgress = require('cli-progress');
 const {config} = require('./config');
-const {query1, query2} = require('./query');
+const {query1, query2, query3} = require('./query');
+var jsonFormat = require('json-format');
 
 var load_data;
 
@@ -44,15 +45,20 @@ const isLowerVersion = (v1, v2) => {
     if(str2.substring(0, 1) == 'v') str2 = str2.substring(1);
     str1 = str1.split(".");
     str2 = str2.split(".");
+    // console.log(str1);
+    // console.log(str2);
     for(i = 0; i < 3; i ++) {
         if(str1[i] > str2[i]) return false;
+        if(str1[i] < str2[i]) return true;
     }
-    return true;
+    return false;
 }
 
 const scan = async (keyword) => {
     console.log(`keyword search: ${keyword}`);
     const addresses = await getTokenAddresses(keyword);
+    console.log(addresses);
+    return;
     const client = new graphqlClient.GraphQLClient("https://graphql.bitquery.io", { headers: {} })
     
     ql_result = await client.request(query1, {
@@ -63,7 +69,8 @@ const scan = async (keyword) => {
     print_data = ql_result.map(data => {
         return {address: data.address, contract_type: data.smartContract?.contractType, token_name: data.smartContract?.currency?.name};
     });
-    const new_addresses = print_data.filter(row => row.token_name != undefined).map(row=>row.address);
+    print_data = print_data.filter(row => row.token_name != undefined && (config.keyword && row.token_name?.toLowerCase().indexOf(config.keyword?.toLowerCase()) != -1));
+    const new_addresses = print_data.map(row=>row.address);
     ql_result = await client.request(query2, {
         "network":"bsc",
         "address": new_addresses
@@ -76,6 +83,18 @@ const scan = async (keyword) => {
     print_data = print_data.map(row => {
         return {...row, transfers: transfers[row.address]}
     })
+    ql_result = await client.request(query3, {
+        "network":"bsc",
+        "address": new_addresses
+    });
+    ql_result = ql_result.ethereum.transfers;
+    var create_date = {};
+    ql_result.map(row => {
+        create_date[row.currency.address] = row.block.timestamp.iso8601.replace(/(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})Z/g, '$1 - $2');
+    })
+    print_data = print_data.map(row => {
+        return {...row, create_date: create_date[row.address]}
+    })
     // print_data.splice(10);
     console.table(print_data);
     
@@ -86,16 +105,16 @@ const scan = async (keyword) => {
         find_ele = load_data.find((row) => {
             return row.address == print_data[i].address;
         });
-        if(find_ele) print_data[i] = find_ele;
+        if(find_ele) print_data[i] = { ...find_ele, ...print_data[i] };
         else print_data[i] = await getTokenInfo(print_data[i]);
         bar2.update(i+1);
     }
     bar2.stop();
-    console.table(print_data);
-    fs.writeFile("save.json", JSON.stringify(print_data), (err) => {
-        if (err) console.log(err);
-        console.log("Successfully Written to File.");
-    });
+    // console.table(print_data);
+    // fs.writeFile("save.json", JSON.stringify(print_data), (err) => {
+    //     if (err) console.log(err);
+    //     console.log("Successfully Written to File.");
+    // });
     const filtered_data = print_data.filter(row => {
         if(config.keyword && row.token_name?.toLowerCase().indexOf(config.keyword?.toLowerCase()) == -1) return false;
         if(config.totalSupply && row.total_supply != config.totalSupply) return false;
@@ -105,6 +124,10 @@ const scan = async (keyword) => {
         return true;
     })
     console.table(filtered_data);
+    fs.writeFile("save.json", jsonFormat(filtered_data), (err) => {
+        if (err) console.log(err);
+        console.log("Successfully Written to File.");
+    });
 }
 
 // console.log(isLowerVersion('V1.2', ''));
@@ -116,4 +139,6 @@ fs.readFile("save.json", function(err, buf) {
         load_data = [];
     }
 });
+// console.log(isLowerVersion("v0.7.6", "0.8.3"));
 scan(config.keyword);
+// console.log(jsonFormat({"name": "rjs", "age": 13}));

@@ -27,6 +27,28 @@ const query2 = graphqlClient.gql`
         }
       }
     `
-
+const query3 = graphqlClient.gql`
+query ($network: EthereumNetwork!, $address: [String!]){
+  ethereum(network: $network) {
+    transfers(
+      currency: {in: $address}
+      sender: {is: "0x0000000000000000000000000000000000000000"}
+    ) {
+      transaction {
+        hash
+      }
+      block {
+        timestamp {
+          iso8601
+        }
+      }
+      currency{
+        address
+      }
+    }
+  }
+}
+`
 exports.query1 = query1;
 exports.query2 = query2;
+exports.query3 = query3;
